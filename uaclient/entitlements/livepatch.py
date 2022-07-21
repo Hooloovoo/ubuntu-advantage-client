@@ -19,6 +19,7 @@ from uaclient.data_types import (
     BoolDataValue,
     DataObject,
     Field,
+    IncorrectTypeError,
     StringDataValue,
 )
 from uaclient.entitlements.base import IncompatibleService, UAEntitlement
@@ -82,8 +83,8 @@ class LivepatchSupportCacheData(DataObject):
     fields = [
         Field("version", StringDataValue),
         Field("flavor", StringDataValue),
-        Field("arch", StringDataValue),
         Field("hwe", StringDataValue),
+        Field("arch", StringDataValue),
         Field("supported", BoolDataValue),
         Field("cached_at", StringDataValue),  # TODO DateValue
     ]
@@ -92,8 +93,8 @@ class LivepatchSupportCacheData(DataObject):
         self,
         version: str,
         flavor: str,
-        arch: str,
         hwe: str,
+        arch: str,
         supported: bool,
         cached_at: str,
     ):
@@ -120,7 +121,8 @@ def on_supported_kernel(self) -> bool:
             return False
         # if "unknown" then continue
 
-    # TODO get kernel info
+    kernel_info = util.get_kernel_info()
+    arch = util.get_lscpu_arch()
 
     # second check cache
     livepatch_support_cache = files.DataObjectFile(
@@ -133,35 +135,50 @@ def on_supported_kernel(self) -> bool:
         file_format="json",
     )
 
-    cache_data = livepatch_support_cache.read()
+    try:
+        cache_data = livepatch_support_cache.read()
+    except IncorrectTypeError:
+        cache_data = None
 
     if cache_data is not None:
-        # TODO check kernel info is the same as what is cached
-        if cache_data.cached_at:  # TODO actually check date
+        if all(
+            [
+                cache_data.cached_at,  # TODO actually check date
+                cache_data.version == kernel_info.version,
+                cache_data.flavor == kernel_info.flavor,
+                cache_data.hwe == kernel_info.hwe,
+                cache_data.arch == arch,
+            ]
+        ):
             return cache_data.supported
 
     # finally check api
     lp_client = UALivepatchClient()
     try:
-        supported = lp_client.is_kernel_supported()
-
-        # cache response before returning
-        # TODO
-        livepatch_support_cache.write(
-            LivepatchSupportCacheData(
-                version="",
-                flavor="",
-                arch="",
-                hwe="",
-                supported=supported,
-                cached_at="now",
-            )
+        supported = lp_client.is_kernel_supported(
+            version=kernel_info.version,
+            flavor=kernel_info.flavor,
+            hwe=kernel_info.hwe,
+            arch=arch,
         )
 
-        return supported
     except exceptions.UrlError as e:
         logging.warning(e)
         raise UnableToDetermineLivepatchSupport()
+
+    # cache response before returning
+    livepatch_support_cache.write(
+        LivepatchSupportCacheData(
+            version=kernel_info.version,
+            flavor=kernel_info.flavor,
+            hwe=kernel_info.hwe,
+            arch=arch,
+            supported=supported,
+            cached_at="now",  # TODO
+        )
+    )
+
+    return supported
 
 
 def unconfigure_livepatch_proxy(
@@ -235,7 +252,7 @@ def get_config_option_value(key: str) -> Optional[str]:
 
 
 def is_livepatch_installed() -> bool:
-    return system.which(LIVEPATCH_CMD)
+    return system.which(LIVEPATCH_CMD) is not None
 
 
 class LivepatchEntitlement(UAEntitlement):
