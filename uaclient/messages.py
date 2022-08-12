@@ -28,6 +28,7 @@ class TxtColor:
     OKGREEN = "\033[92m"
     DISABLEGREY = "\033[37m"
     INFOBLUE = "\033[94m"
+    WARNINGYELLOW = "\033[93m"
     FAIL = "\033[91m"
     BOLD = "\033[1m"
     ENDC = "\033[0m"

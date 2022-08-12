@@ -1,3 +1,4 @@
+import datetime
 import json
 import logging
 import re
@@ -18,6 +19,7 @@ from uaclient import (
 from uaclient.data_types import (
     BoolDataValue,
     DataObject,
+    DatetimeDataValue,
     Field,
     IncorrectTypeError,
     StringDataValue,
@@ -71,7 +73,7 @@ class LivepatchNotInstalled(Exception):
 def livepatch_command_status() -> dict:
     if not is_livepatch_installed():
         raise LivepatchNotInstalled()
-    out, _ = util.subp([LIVEPATCH_CMD, "status", "--format", "json"])
+    out, _ = system.subp([LIVEPATCH_CMD, "status", "--format", "json"])
     return json.loads(out)
 
 
@@ -86,7 +88,7 @@ class LivepatchSupportCacheData(DataObject):
         Field("hwe", StringDataValue),
         Field("arch", StringDataValue),
         Field("supported", BoolDataValue),
-        Field("cached_at", StringDataValue),  # TODO DateValue
+        Field("cached_at", DatetimeDataValue),
     ]
 
     def __init__(
@@ -96,7 +98,7 @@ class LivepatchSupportCacheData(DataObject):
         hwe: str,
         arch: str,
         supported: bool,
-        cached_at: str,
+        cached_at: datetime.datetime,
     ):
         self.version = version
         self.flavor = flavor
@@ -106,47 +108,52 @@ class LivepatchSupportCacheData(DataObject):
         self.cached_at = cached_at
 
 
-@lru_cache(maxsize=None)
-def on_supported_kernel(self) -> bool:
-    # first check cli
-    if is_livepatch_installed():
-        cli_supported = (
-            livepatch_command_status()
-            .get("status", {})
-            .get("supported", "unknown")
-        )
-        if cli_supported == "supported":
-            return True
-        elif cli_supported == "unsupported":
-            return False
-        # if "unknown" then continue
-
-    kernel_info = util.get_kernel_info()
-    arch = util.get_lscpu_arch()
-
-    # second check cache
-    livepatch_support_cache = files.DataObjectFile(
+def get_livepatch_support_cache() -> files.DataObjectFile[
+    LivepatchSupportCacheData
+]:
+    return files.DataObjectFile(
         LivepatchSupportCacheData,
         files.UAFile(
             "livepatch-kernel-support-cache.json",
             "/run/ubuntu-advantage",
             private=False,
         ),
-        file_format="json",
+        file_format=files.DataObjectFileFormat.JSON,
     )
 
+
+@lru_cache(maxsize=None)
+def on_supported_kernel(self) -> bool:
+    # first check cli
+    if is_livepatch_installed():
+        cli_status = livepatch_command_status().get("Status", [])
+        if len(status) > 0:
+            cli_supported = (
+                cli_status[0].get("Livepatch", {}).get("Supported", "unknown")
+            )
+            if cli_supported == "supported":
+                return True
+            elif cli_supported == "unsupported":
+                return False
+            # if "unknown" then continue
+
+    kernel_info = system.get_kernel_info()
+    arch = system.get_lscpu_arch()
+
+    # second check cache
+    livepatch_support_cache = get_livepatch_support_cache()
     try:
-        cache_data = livepatch_support_cache.read()
+        cache_data = get_livepatch_support_cache().read()
     except IncorrectTypeError:
         cache_data = None
-
     if cache_data is not None:
+        one_week_ago = datetime.datetime.today() - datetime.timedelta(days=7)
         if all(
             [
-                cache_data.cached_at,  # TODO actually check date
+                cache_data.cached_at > one_week_ago,  # less than one week old
                 cache_data.version == kernel_info.version,
                 cache_data.flavor == kernel_info.flavor,
-                cache_data.hwe == kernel_info.hwe,
+                cache_data.hwe == kernel_info.hwerev,
                 cache_data.arch == arch,
             ]
         ):
@@ -158,23 +165,24 @@ def on_supported_kernel(self) -> bool:
         supported = lp_client.is_kernel_supported(
             version=kernel_info.version,
             flavor=kernel_info.flavor,
-            hwe=kernel_info.hwe,
+            hwe=kernel_info.hwerev,
             arch=arch,
         )
 
     except exceptions.UrlError as e:
+        # default to unsupported
         logging.warning(e)
-        raise UnableToDetermineLivepatchSupport()
+        return False
 
     # cache response before returning
     livepatch_support_cache.write(
         LivepatchSupportCacheData(
             version=kernel_info.version,
             flavor=kernel_info.flavor,
-            hwe=kernel_info.hwe,
+            hwe=kernel_info.hwerev,
             arch=arch,
             supported=supported,
-            cached_at="now",  # TODO
+            cached_at=datetime.datetime.today(),  # TODO
         )
     )
 
@@ -193,7 +201,7 @@ def unconfigure_livepatch_proxy(
         on failure; sleeping half a second before the first retry and 1 second
         before the second retry.
     """
-    if not system.which(LIVEPATCH_CMD):
+    if not is_livepatch_installed():
         return
     system.subp(
         [LIVEPATCH_CMD, "config", "{}-proxy=".format(protocol_type)],
@@ -239,7 +247,7 @@ def configure_livepatch_proxy(
 def get_config_option_value(key: str) -> Optional[str]:
     """
     Gets the config value from livepatch.
-    :param protocol: can be any valid livepatch config option
+    :param key: can be any valid livepatch config option
     :return: the value of the livepatch config option, or None if not set
     """
     out, _ = system.subp([LIVEPATCH_CMD, "config"])
@@ -429,7 +437,7 @@ class LivepatchEntitlement(UAEntitlement):
 
         @return: True on success, False otherwise.
         """
-        if not system.which(LIVEPATCH_CMD):
+        if not is_livepatch_installed():
             return True
         system.subp([LIVEPATCH_CMD, "disable"], capture=True)
         return True
@@ -439,13 +447,11 @@ class LivepatchEntitlement(UAEntitlement):
     ) -> Tuple[ApplicationStatus, Optional[messages.NamedMessage]]:
         status = (ApplicationStatus.ENABLED, None)
 
-        if not system.which(LIVEPATCH_CMD):
+        if not is_livepatch_installed():
             return (ApplicationStatus.DISABLED, messages.LIVEPATCH_NOT_ENABLED)
 
         try:
-            system.subp(
-                [LIVEPATCH_CMD, "status"], retry_sleeps=LIVEPATCH_RETRIES
-            )
+            cli_status = livepatch_command_status().get("Status", [])
         except exceptions.ProcessExecutionError as e:
             # TODO(May want to parse INACTIVE/failure assessment)
             logging.debug("Livepatch not enabled. %s", str(e))
@@ -453,6 +459,16 @@ class LivepatchEntitlement(UAEntitlement):
                 ApplicationStatus.DISABLED,
                 messages.NamedMessage(name="", msg=str(e)),
             )
+        if len(cli_status) > 0 and not cli_status[0].get("Running", False):
+            return (ApplicationStatus.DISABLED, messages.LIVEPATCH_NOT_RUNNING)
+
+        # TODO this will actually go a in a new method probably iie
+        if not on_supported_kernel():
+            return (
+                ApplicationStatus.WARNING,
+                messages.LIVEPATCH_KERNEL_NOT_SUPPORTED,
+            )
+
         return status
 
     def process_contract_deltas(

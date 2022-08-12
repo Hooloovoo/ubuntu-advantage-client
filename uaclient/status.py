@@ -46,6 +46,9 @@ STATUS_COLOR = {
         + UserFacingStatus.UNAVAILABLE.value
         + TxtColor.ENDC
     ),
+    UserFacingStatus.WARNING.value: (
+        TxtColor.WARNINGYELLOW + UserFacingStatus.WARNING.value + TxtColor.ENDC
+    ),
     ContractStatus.ENTITLED.value: (
         TxtColor.OKGREEN + ContractStatus.ENTITLED.value + TxtColor.ENDC
     ),

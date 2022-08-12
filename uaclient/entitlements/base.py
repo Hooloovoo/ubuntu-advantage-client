@@ -887,6 +887,8 @@ class UAEntitlement(metaclass=abc.ABCMeta):
             ApplicationStatus.ENABLED: UserFacingStatus.ACTIVE,
             ApplicationStatus.DISABLED: UserFacingStatus.INACTIVE,
         }[application_status]
+
+        # TODO: if enabled, check for warning state
         return user_facing_status, explanation
 
     @abc.abstractmethod
