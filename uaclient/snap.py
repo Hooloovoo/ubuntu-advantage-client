@@ -93,3 +93,33 @@ def get_config_option_value(key: str) -> Optional[str]:
         return out.strip()
     except exceptions.ProcessExecutionError:
         return None
+
+
+class SnapPackage:
+    def __init__(self, name, version, rev, tracking, publisher, notes):
+        self.name = name
+        self.version = version
+        self.rev = rev
+        self.tracking = tracking
+        self.publisher = publisher
+        self.notes = notes
+
+
+def get_installed_packages() -> List[SnapPackage]:
+    out, _ = system.subp(["snap", "list"])
+    apps = out.splitlines()
+    apps = apps[1:]
+    snaps = []
+    for line in apps:
+        pkg = line.split()
+        snap = SnapPackage(
+            name=pkg[0],
+            version=pkg[1],
+            rev=pkg[2],
+            tracking=pkg[3],
+            publisher=pkg[4],
+            notes=pkg[5],
+        )
+        snaps.append(snap)
+
+    return snaps

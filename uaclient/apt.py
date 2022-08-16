@@ -490,8 +490,11 @@ def is_installed(pkg: str) -> bool:
     return pkg in get_installed_packages()
 
 
-def get_installed_packages() -> List[str]:
-    out, _ = system.subp(["dpkg-query", "-W", "--showformat=${Package}\\n"])
+def get_installed_packages(include_versions: bool = False) -> List[str]:
+    filters = ["--showformat=${Package}\\n"]
+    if include_versions:
+        filters = []
+    out, _ = system.subp(["dpkg-query", "-W", *filters])
     return out.splitlines()
 
 
