@@ -106,8 +106,9 @@ DEFAULT_STATUS = {
 
 
 def _attached_service_status(ent, inapplicable_resources) -> Dict[str, Any]:
+    warning = None
     status_details = ""
-    description_override = None
+    description_override = ent.status_description_override()
     contract_status = ent.contract_status()
     if contract_status == ContractStatus.UNENTITLED:
         ent_status = UserFacingStatus.UNAVAILABLE
@@ -117,7 +118,12 @@ def _attached_service_status(ent, inapplicable_resources) -> Dict[str, Any]:
             description_override = inapplicable_resources[ent.name]
         else:
             ent_status, details = ent.user_facing_status()
-            if details:
+            if ent_status == UserFacingStatus.WARNING:
+                warning = {
+                    "code": details.name,
+                    "message": details.msg,
+                }
+            elif details:
                 status_details = details.msg
 
     blocked_by = [
@@ -138,6 +144,7 @@ def _attached_service_status(ent, inapplicable_resources) -> Dict[str, Any]:
         "description_override": description_override,
         "available": "yes" if ent.name not in inapplicable_resources else "no",
         "blocked_by": blocked_by,
+        "warning": warning,
     }
 
 

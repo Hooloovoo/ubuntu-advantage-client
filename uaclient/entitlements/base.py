@@ -58,6 +58,9 @@ class UAEntitlement(metaclass=abc.ABCMeta):
     # List of services that depend on this service
     _dependent_services = ()  # type: Tuple[Type[UAEntitlement], ...]
 
+    affordance_check_kernel_min_version = True
+    affordance_check_kernel_flavor = True
+
     @property
     @abc.abstractmethod
     def name(self) -> str:
@@ -553,10 +556,13 @@ class UAEntitlement(metaclass=abc.ABCMeta):
                     title=self.title, series=platform["version"]
                 ),
             )
+
         kernel_info = system.get_kernel_info()
         affordance_kernels = affordances.get("kernelFlavors", None)
-        affordance_min_kernel = affordances.get("minKernelVersion")
-        if affordance_kernels is not None:
+        if (
+            self.affordance_check_kernel_flavor
+            and affordance_kernels is not None
+        ):
             if kernel_info.flavor not in affordance_kernels:
                 return (
                     ApplicabilityStatus.INAPPLICABLE,
@@ -566,7 +572,9 @@ class UAEntitlement(metaclass=abc.ABCMeta):
                         supported_kernels=", ".join(affordance_kernels),
                     ),
                 )
-        if affordance_min_kernel:
+
+        affordance_min_kernel = affordances.get("minKernelVersion")
+        if self.affordance_check_kernel_min_version and affordance_min_kernel:
             invalid_msg = messages.INAPPLICABLE_KERNEL_VER.format(
                 title=self.title,
                 kernel=kernel_info.uname_release,
@@ -883,13 +891,16 @@ class UAEntitlement(metaclass=abc.ABCMeta):
             )
 
         application_status, explanation = self.application_status()
-        user_facing_status = {
-            ApplicationStatus.ENABLED: UserFacingStatus.ACTIVE,
-            ApplicationStatus.DISABLED: UserFacingStatus.INACTIVE,
-        }[application_status]
 
-        # TODO: if enabled, check for warning state
-        return user_facing_status, explanation
+        if application_status == ApplicationStatus.DISABLED:
+            return UserFacingStatus.INACTIVE, explanation
+
+        warning, warn_msg = self.enabled_warning_status()
+
+        if warning:
+            return UserFacingStatus.WARNING, warn_msg
+
+        return UserFacingStatus.ACTIVE, explanation
 
     @abc.abstractmethod
     def application_status(
@@ -902,3 +913,20 @@ class UAEntitlement(metaclass=abc.ABCMeta):
             A tuple of (ApplicationStatus, human-friendly reason)
         """
         pass
+
+    def enabled_warning_status(
+        self,
+    ) -> Tuple[bool, Optional[messages.NamedMessage]]:
+        """
+        If the entitlment is enabled, are there any warnings?
+        The message is displayed as a Warning Notice in status output
+
+        :return:
+            A tuple of (warning bool, human-friendly reason)
+        """
+        return False, None
+
+    def status_description_override(
+        self,
+    ) -> Optional[str]:
+        return None

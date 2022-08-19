@@ -53,9 +53,9 @@ class UALivepatchClient(serviceclient.UAServiceClient):
         self, version: str, flavor: str, arch: str, hwe: str
     ):
         data = {
-            "version": version,
-            "flavor": flavor,
-            "arch": arch,
+            "kernel-version": version,
+            "flavour": flavor,
+            "architecture": arch,
             "hwe": hwe,
         }
         headers = self.headers()
@@ -123,11 +123,11 @@ def get_livepatch_support_cache() -> files.DataObjectFile[
 
 
 @lru_cache(maxsize=None)
-def on_supported_kernel(self) -> bool:
+def on_supported_kernel() -> bool:
     # first check cli
     if is_livepatch_installed():
         cli_status = livepatch_command_status().get("Status", [])
-        if len(status) > 0:
+        if len(cli_status) > 0:
             cli_supported = (
                 cli_status[0].get("Livepatch", {}).get("Supported", "unknown")
             )
@@ -269,6 +269,8 @@ class LivepatchEntitlement(UAEntitlement):
     name = "livepatch"
     title = "Livepatch"
     description = "Canonical Livepatch service"
+    affordance_check_kernel_min_version = False
+    affordance_check_kernel_flavor = False
 
     @property
     def incompatible_services(self) -> Tuple[IncompatibleService, ...]:
@@ -462,14 +464,26 @@ class LivepatchEntitlement(UAEntitlement):
         if len(cli_status) > 0 and not cli_status[0].get("Running", False):
             return (ApplicationStatus.DISABLED, messages.LIVEPATCH_NOT_RUNNING)
 
-        # TODO this will actually go a in a new method probably iie
-        if not on_supported_kernel():
-            return (
-                ApplicationStatus.WARNING,
-                messages.LIVEPATCH_KERNEL_NOT_SUPPORTED,
-            )
-
         return status
+
+    def enabled_warning_status(
+        self,
+    ) -> Tuple[bool, Optional[messages.NamedMessage]]:
+        if not on_supported_kernel():
+            kernel_info = system.get_kernel_info()
+            arch = system.get_lscpu_arch()
+            return (
+                True,
+                messages.LIVEPATCH_KERNEL_NOT_SUPPORTED.format(
+                    version=kernel_info.uname_release, arch=arch
+                ),
+            )
+        return False, None
+
+    def status_description_override(self):
+        if not on_supported_kernel():
+            return messages.LIVEPATCH_KERNEL_NOT_SUPPORTED_DESCRIPTION
+        return None
 
     def process_contract_deltas(
         self,
