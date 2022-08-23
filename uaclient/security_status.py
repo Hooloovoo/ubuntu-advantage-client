@@ -18,6 +18,8 @@ ORIGIN_INFORMATION_TO_SERVICE = {
     ("Ubuntu", "{}-security".format(series)): "standard-security",
     ("UbuntuESMApps", "{}-apps-security".format(series)): "esm-apps",
     ("UbuntuESM", "{}-infra-security".format(series)): "esm-infra",
+    ("UbuntuESMApps", "{}-apps-updates".format(series)): "esm-apps",
+    ("UbuntuESM", "{}-infra-updates".format(series)): "esm-infra",
 }
 
 
