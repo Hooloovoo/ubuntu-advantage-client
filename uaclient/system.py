@@ -13,6 +13,7 @@ REBOOT_FILE_CHECK_PATH = "/var/run/reboot-required"
 REBOOT_PKGS_FILE_PATH = "/var/run/reboot-required.pkgs"
 ETC_MACHINE_ID = "/etc/machine-id"
 DBUS_MACHINE_ID = "/var/lib/dbus/machine-id"
+DISTRO_INFO_CSV = "/usr/share/distro-info/ubuntu.csv"
 
 # N.B. this relies on the version normalisation we perform in get_platform_info
 REGEX_OS_RELEASE_VERSION = r"(?P<release>\d+\.\d+) (LTS )?\((?P<series>\w+).*"
@@ -241,6 +242,12 @@ def is_current_series_lts() -> bool:
 
 
 @lru_cache(maxsize=None)
+def is_supported(series: str) -> bool:
+    out, _err = subp(["/usr/bin/ubuntu-distro-info", "--supported"])
+    return series in out
+
+
+@lru_cache(maxsize=None)
 def is_active_esm(series: str) -> bool:
     """Return True when Ubuntu series supports ESM and is actively in ESM."""
     if not is_lts(series):
@@ -288,6 +295,40 @@ def parse_os_release(release_file: Optional[str] = None) -> Dict[str, str]:
         if value:
             data[key] = value.strip().strip('"')
     return data
+
+
+@lru_cache(maxsize=None)
+def load_distro_info_csv(series: str) -> Dict[str, str]:
+    result = {}
+    try:
+        lines = load_file(DISTRO_INFO_CSV).splitlines()
+    except FileNotFoundError:
+        raise exceptions.UserFacingError(messages.MISSING_DISTRO_INFO_FILE)
+    headers = lines[0].split(",")
+    for line in lines:
+        values = line.split(",")
+        if values[2] == series:
+            for i in range(len(values)):
+                result[headers[i]] = values[i]
+            return result
+
+    raise KeyError(messages.MISSING_SERIES_IN_DISTRO_INFO_FILE.format(series))
+
+
+def get_eol_date_for_series(series: str, eol: str = "eol") -> Dict[str, str]:
+    # Xenial ESM dates were updated for Xenial after the last SRU there,
+    # and are incorrect in the CSV
+    if series == "xenial" and eol == "eol-esm":
+        return {"month": "04", "year": "2026"}
+
+    try:
+        distro_info = load_distro_info_csv(series)
+        year, month, _day = distro_info[eol].split("-")
+    except KeyError:
+        raise exceptions.UserFacingError(
+            messages.NO_EOL_DATA_FOR_SERIES.format(eol, series)
+        )
+    return {"month": month, "year": year}
 
 
 def which(program: str) -> Optional[str]:

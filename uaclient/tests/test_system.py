@@ -247,6 +247,19 @@ class TestIsLTS:
         ] == subp.call_args_list
 
 
+class TestIsSupported:
+    @pytest.mark.parametrize(
+        "series,expected", (("sup1", True), ("unsup", False))
+    )
+    @mock.patch("uaclient.system.subp")
+    def test_return_supported_series(self, subp, series, expected):
+        subp.return_value = "sup1\nsup2\nsup3", ""
+        assert expected is system.is_supported.__wrapped__(series)
+        assert [
+            mock.call(["/usr/bin/ubuntu-distro-info", "--supported"])
+        ] == subp.call_args_list
+
+
 class TestIsActiveESM:
     @pytest.mark.parametrize(
         "series, is_lts, days_until_esm,expected",
@@ -515,6 +528,101 @@ LOGO=ubuntu-logo
         m_load_file.return_value = content
         assert expected == system.parse_os_release.__wrapped__()
         assert m_load_file.call_args_list == [mock.call("/etc/os-release")]
+
+
+@mock.patch("uaclient.system.load_file")
+class TestLoadDistroInfoCSV:
+    content = """\
+version,codename,series,created,release,eol,eol-server,eol-esm
+20.04 LTS,Focal Fossa,focal,2019-10-17,2020-04-23,2025-04-23,2025-04-23,2030-04-23
+22.10,Kinetic Kudu,kinetic,2022-04-21,2022-10-20,2023-07-20
+"""  # noqa: E501
+
+    def test_load_distro_info(self, m_load_file):
+        m_load_file.return_value = self.content
+
+        assert {
+            "version": "20.04 LTS",
+            "codename": "Focal Fossa",
+            "series": "focal",
+            "created": "2019-10-17",
+            "release": "2020-04-23",
+            "eol": "2025-04-23",
+            "eol-server": "2025-04-23",
+            "eol-esm": "2030-04-23",
+        } == system.load_distro_info_csv.__wrapped__("focal")
+
+        assert {
+            "version": "22.10",
+            "codename": "Kinetic Kudu",
+            "series": "kinetic",
+            "created": "2022-04-21",
+            "release": "2022-10-20",
+            "eol": "2023-07-20",
+        } == system.load_distro_info_csv.__wrapped__("kinetic")
+
+        with pytest.raises(KeyError) as excinfo:
+            system.load_distro_info_csv.__wrapped__("nonexistent")
+        assert (
+            messages.MISSING_SERIES_IN_DISTRO_INFO_FILE.format("nonexistent")
+            == excinfo.value.args[0]
+        )
+
+    def test_no_csv_file(self, m_load_file):
+        m_load_file.side_effect = FileNotFoundError
+
+        with pytest.raises(exceptions.UserFacingError) as excinfo:
+            system.load_distro_info_csv.__wrapped__("focal")
+        assert messages.MISSING_DISTRO_INFO_FILE == excinfo.value.msg
+
+
+@mock.patch("uaclient.system.load_distro_info_csv")
+class TestGetEolDateForSeries:
+    def get_eol_for_existing_series(self, m_di_csv):
+        m_di_csv.return_value = {
+            "eol": "2025-05-23",
+            "eol-esm": "2030-06-23",
+        }
+
+        assert {
+            "month": "04",
+            "year": "2026",
+        } == system.get_eol_date_for_series("xenial", "eol-esm")
+        assert 0 == m_di_csv.call_count
+
+        assert {
+            "month": "05",
+            "year": "2025",
+        } == system.get_eol_date_for_series("other")
+        assert {
+            "month": "06",
+            "year": "2030",
+        } == system.get_eol_date_for_series("other", "eol-esm")
+        assert 2 == m_di_csv.call_count
+
+    def get_eol_for_nonexisting_series(self, m_di_csv):
+        m_di_csv.side_effect = KeyError
+
+        with pytest.raises(exceptions.UserFacingError) as excinfo:
+            system.get_eol_date_for_series("wrongseries")
+
+        assert (
+            messages.NO_EOL_DATA_FOR_SERIES.format("eol", "wrongseries")
+            == excinfo.value.msg
+        )
+
+    def get_eol_no_csv_data(self, m_di_csv):
+        m_di_csv.return_value = {
+            "eol": "2025-05-23",
+        }
+
+        with pytest.raises(exceptions.UserFacingError) as excinfo:
+            system.get_eol_date_for_series("someseries", "eol-wrong")
+
+        assert (
+            messages.NO_EOL_DATA_FOR_SERIES.format("eol-wrong", "someseries")
+            == excinfo.value.msg
+        )
 
 
 class TestGetPlatformInfo:
