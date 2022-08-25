@@ -51,8 +51,13 @@ class UALivepatchClient(serviceclient.UAServiceClient):
 
     def is_kernel_supported(
         self, version: str, flavor: str, arch: str, hwe: str
-    ):
-        data = {
+    ) -> Optional[bool]:
+        """
+        :returns: True if supported
+                  False if unsupported
+                  None if API returns ambiguous response
+        """
+        query_params = {
             "kernel-version": version,
             "flavour": flavor,
             "architecture": arch,
@@ -60,10 +65,21 @@ class UALivepatchClient(serviceclient.UAServiceClient):
         }
         headers = self.headers()
         result, _headers = self.request_url(
-            LIVEPATCH_API_V1_KERNELS_SUPPORTED, data=data, headers=headers
+            LIVEPATCH_API_V1_KERNELS_SUPPORTED,
+            query_params=query_params,
+            headers=headers,
         )
 
-        return isinstance(result, dict) and result.get("supported") == "yes"
+        if not isinstance(result, dict):
+            return None
+
+        supported = result.get("supported", None)
+        if supported == "yes":
+            return True
+        if supported == "no":
+            return False
+
+        return None
 
 
 class LivepatchNotInstalled(Exception):
@@ -87,7 +103,7 @@ class LivepatchSupportCacheData(DataObject):
         Field("flavor", StringDataValue),
         Field("hwe", StringDataValue),
         Field("arch", StringDataValue),
-        Field("supported", BoolDataValue),
+        Field("supported", BoolDataValue, required=False),
         Field("cached_at", DatetimeDataValue),
     ]
 
@@ -97,7 +113,7 @@ class LivepatchSupportCacheData(DataObject):
         flavor: str,
         hwe: str,
         arch: str,
-        supported: bool,
+        supported: Optional[bool],
         cached_at: datetime.datetime,
     ):
         self.version = version
@@ -123,7 +139,11 @@ def get_livepatch_support_cache() -> files.DataObjectFile[
 
 
 @lru_cache(maxsize=None)
-def on_supported_kernel() -> bool:
+def on_supported_kernel() -> Optional[bool]:
+    """
+    Checks CLI, local cache, and API in that order for kernel support
+    If all checks fail to return an authoritative answer, we return None
+    """
     # first check cli
     if is_livepatch_installed():
         cli_status = livepatch_command_status().get("Status", [])
@@ -133,7 +153,7 @@ def on_supported_kernel() -> bool:
             )
             if cli_supported == "supported":
                 return True
-            elif cli_supported == "unsupported":
+            if cli_supported == "unsupported":
                 return False
             # if "unknown" then continue
 
@@ -157,6 +177,11 @@ def on_supported_kernel() -> bool:
                 cache_data.arch == arch,
             ]
         ):
+            if cache_data.supported is None:
+                with util.disable_log_to_console():
+                    logging.warning(
+                        "livepatch kernel support cache has None value"
+                    )
             return cache_data.supported
 
     # finally check api
@@ -170,9 +195,12 @@ def on_supported_kernel() -> bool:
         )
 
     except exceptions.UrlError as e:
-        # default to unsupported
-        logging.warning(e)
-        return False
+        with util.disable_log_to_console():
+            logging.warning(
+                "error while checking livepatch supported kernels API"
+            )
+            logging.warning(e)
+        return None
 
     # cache response before returning
     livepatch_support_cache.write(
@@ -182,10 +210,15 @@ def on_supported_kernel() -> bool:
             hwe=kernel_info.hwerev,
             arch=arch,
             supported=supported,
-            cached_at=datetime.datetime.today(),  # TODO
+            cached_at=datetime.datetime.now(),
         )
     )
 
+    if supported is None:
+        with util.disable_log_to_console():
+            logging.warning(
+                "livepatch kernel support API response was ambiguous"
+            )
     return supported
 
 
@@ -469,7 +502,7 @@ class LivepatchEntitlement(UAEntitlement):
     def enabled_warning_status(
         self,
     ) -> Tuple[bool, Optional[messages.NamedMessage]]:
-        if not on_supported_kernel():
+        if on_supported_kernel() is False:
             kernel_info = system.get_kernel_info()
             arch = system.get_lscpu_arch()
             return (
@@ -478,10 +511,12 @@ class LivepatchEntitlement(UAEntitlement):
                     version=kernel_info.uname_release, arch=arch
                 ),
             )
+        # is on_supported_kernel returns None we default to no warning
+        # because there would be no way for a user to resolve the warning
         return False, None
 
     def status_description_override(self):
-        if not on_supported_kernel():
+        if on_supported_kernel() is False:
             return messages.LIVEPATCH_KERNEL_NOT_SUPPORTED_DESCRIPTION
         return None
 

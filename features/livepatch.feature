@@ -18,9 +18,9 @@ Feature: Livepatch
         Then stdout matches regexp:
         """
         NOTICES:
-        Warning: The current kernel (5.15.0-27-generic, x86_64) is not supported by livepatch.
-                 Supported kernels are listed here: https://ubuntu.com/security/livepatch/docs/kernels
-                 Either switch to a supported kernel or `pro disable livepatch` to dismiss this warning.
+        The current kernel (5.4.0-27-kvm, x86_64) is not supported by livepatch.
+        Supported kernels are listed here: https://ubuntu.com/security/livepatch/docs/kernels
+        Either switch to a supported kernel or `pro disable livepatch` to dismiss this warning.
 
         """
         Examples: ubuntu release

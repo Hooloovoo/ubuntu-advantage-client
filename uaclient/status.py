@@ -591,6 +591,7 @@ def format_tabular(status: Dict[str, Any]) -> str:
         content.extend(["", messages.UNATTACHED.msg])
         return "\n".join(content)
 
+    service_warnings = []
     content = [STATUS_HEADER]
     for service_status in status["services"]:
         entitled = service_status["entitled"]
@@ -604,15 +605,18 @@ def format_tabular(status: Dict[str, Any]) -> str:
             "status": colorize(service_status["status"]),
             "description": description,
         }
+        warning = service_status.get("warning", None)
+        if warning is not None:
+            warning_message = warning.get("message", None)
+            if warning_message is not None:
+                service_warnings.append(warning)
         content.append(STATUS_TMPL.format(**fmt_args))
     tech_support_level = status["contract"]["tech_support_level"]
 
-    if status.get("notices"):
-        content.extend(
-            get_section_column_content(
-                status.get("notices") or [], header="NOTICES"
-            )
-        )
+    if status.get("notices") or len(service_warnings) > 0:
+        content.append("NOTICES")
+        content.extend(get_section_column_content(status.get("notices") or []))
+        content.extend(service_warnings)
 
     if status.get("features"):
         content.append("\nFEATURES")
