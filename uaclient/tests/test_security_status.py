@@ -6,6 +6,7 @@ import pytest
 from uaclient.security_status import (
     UpdateStatus,
     filter_security_updates,
+    get_livepatch_fixed_cves,
     get_origin_for_package,
     get_service_name,
     get_ua_info,
@@ -310,6 +311,7 @@ class TestSecurityStatus:
                 "more-than-one-update",
             ] == [v.package.name for v in filtered_versions]
 
+    @mock.patch(M_PATH + "get_livepatch_fixed_cves", return_value=[])
     @mock.patch(M_PATH + "status", return_value={"attached": False})
     @mock.patch(
         M_PATH + "get_service_name",
@@ -325,6 +327,7 @@ class TestSecurityStatus:
         _m_get_origin,
         _m_service_name,
         _m_status,
+        _m_livepatch_cves,
         FakeConfig,
     ):
         """Make sure the output format matches the expected JSON"""
@@ -374,6 +377,90 @@ class TestSecurityStatus:
                 "num_esm_apps_updates": 0,
                 "num_standard_security_updates": 0,
             },
+            "livepatch": {"fixed_cves": []},
         }
 
         assert expected_output == security_status(cfg)
+
+
+@mock.patch(M_PATH + "get_kernel_info")
+@mock.patch(M_PATH + "which")
+class TestGetLivepatchFixedCVEs:
+    def test_livepatch_not_installed(self, m_which, _m_kernel_info):
+        m_which.return_value = None
+
+        assert [] == get_livepatch_fixed_cves()
+
+    @mock.patch(M_PATH + "json.loads")
+    def test_livepatch_different_kernel(
+        self, m_loads, _m_which, m_kernel_info
+    ):
+        m_kernel_info.return_value.proc_version_signature_version = (
+            "installed-kernel-generic"
+        )
+        m_loads.return_value = {
+            "Status": [
+                {
+                    "Kernel": "other-kernel-generic",
+                    "Livepatch": {
+                        "State": "applied",
+                        "Fixes": [
+                            {
+                                "Name": "cve-example",
+                                "Description": "",
+                                "Bug": "",
+                                "Patched": True,
+                            },
+                        ],
+                    },
+                }
+            ],
+        }
+
+        assert [] == get_livepatch_fixed_cves()
+
+    @mock.patch(M_PATH + "json.loads")
+    def test_livepatch_no_fixes(self, m_loads, _m_which, m_kernel_info):
+        m_kernel_info.return_value.proc_version_signature_version = (
+            "installed-kernel-generic"
+        )
+        m_loads.return_value = {
+            "Status": [
+                {
+                    "Kernel": "installed-kernel-generic",
+                    "Livepatch": {
+                        "State": "nothing-to-apply",
+                    },
+                }
+            ],
+        }
+
+        assert [] == get_livepatch_fixed_cves()
+
+    @mock.patch(M_PATH + "json.loads")
+    def test_livepatch_has_fixes(self, m_loads, _m_which, m_kernel_info):
+        m_kernel_info.return_value.proc_version_signature_version = (
+            "installed-kernel-generic"
+        )
+        m_loads.return_value = {
+            "Status": [
+                {
+                    "Kernel": "installed-kernel-generic",
+                    "Livepatch": {
+                        "State": "applied",
+                        "Fixes": [
+                            {
+                                "Name": "cve-example",
+                                "Description": "",
+                                "Bug": "",
+                                "Patched": True,
+                            },
+                        ],
+                    },
+                }
+            ],
+        }
+
+        assert [
+            {"Name": "cve-example", "Patched": True}
+        ] == get_livepatch_fixed_cves()

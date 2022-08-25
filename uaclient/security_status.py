@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from enum import Enum
 from typing import Any, DefaultDict, Dict, List, Tuple  # noqa: F401
@@ -6,8 +7,9 @@ from apt import Cache  # type: ignore
 from apt import package as apt_package
 
 from uaclient.config import UAConfig
+from uaclient.entitlements.livepatch import LIVEPATCH_CMD
 from uaclient.status import status
-from uaclient.system import get_platform_info
+from uaclient.system import get_kernel_info, get_platform_info, subp, which
 
 series = get_platform_info()["series"]
 
@@ -132,6 +134,35 @@ def get_ua_info(cfg: UAConfig) -> Dict[str, Any]:
     return ua_info
 
 
+def get_livepatch_fixed_cves() -> List[Dict[str, str]]:
+    if not which(LIVEPATCH_CMD):
+        return []
+
+    out, _err = subp([LIVEPATCH_CMD, "status", "--format", "json"])
+    livepatch_output = json.loads(out)
+    status_list = livepatch_output.get("Status", [])
+    if status_list:
+        kernel_info = get_kernel_info()
+        for livepatch_status in status_list:
+            if (
+                livepatch_status.get("Kernel", "")
+                == kernel_info.proc_version_signature_version
+                and livepatch_status.get("Livepatch", {}).get("State", "")
+                == "applied"
+            ):
+                fixes = livepatch_status.get("Livepatch", {}).get("Fixes", [])
+
+                return [
+                    {
+                        "Name": fix.get("Name", ""),
+                        "Patched": fix.get("Patched", ""),
+                    }
+                    for fix in fixes
+                ]
+
+    return []
+
+
 def security_status(cfg: UAConfig) -> Dict[str, Any]:
     """Returns the status of security updates on a system.
 
@@ -190,4 +221,9 @@ def security_status(cfg: UAConfig) -> Dict[str, Any]:
         "standard-security"
     ]
 
-    return {"_schema_version": "0.1", "summary": summary, "packages": packages}
+    return {
+        "_schema_version": "0.1",
+        "summary": summary,
+        "packages": packages,
+        "livepatch": {"fixed_cves": get_livepatch_fixed_cves()},
+    }
