@@ -8,7 +8,7 @@ from uaclient.clouds.gcp import UAAutoAttachGCPInstance
 from uaclient.clouds.identity import cloud_instance_factory
 from uaclient.config import UAConfig
 
-LOG = logging.getLogger("ua.daemon")
+LOG = logging.getLogger("pro.daemon")
 
 
 def start():
