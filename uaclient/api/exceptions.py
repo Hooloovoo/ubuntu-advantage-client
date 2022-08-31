@@ -4,6 +4,7 @@ from uaclient.exceptions import (
     BetaServiceError,
     ContractAPIError,
     EntitlementNotFoundError,
+    LockHeldError,
     NonAutoAttachImageError,
     UrlError,
     UserFacingError,
@@ -17,6 +18,7 @@ __all__ = [
     "NonAutoAttachImageError",
     "UrlError",
     "UserFacingError",
+    "LockHeldError",
 ]
 
 

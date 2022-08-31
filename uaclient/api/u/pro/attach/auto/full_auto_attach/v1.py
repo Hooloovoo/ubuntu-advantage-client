@@ -1,6 +1,6 @@
 from typing import List, Optional, Tuple, Type  # noqa: F401
 
-from uaclient import actions, entitlements, event_logger
+from uaclient import actions, entitlements, event_logger, lock
 from uaclient.api import exceptions
 from uaclient.api.api import APIEndpoint
 from uaclient.api.data_types import AdditionalInfo
@@ -111,15 +111,24 @@ def _full_auto_attach(options: FullAutoAttachOptions, cfg: UAConfig):
     enable_default_services = (
         options.enable is None and options.enable_beta is None
     )
-    actions.auto_attach(cfg, instance, enable_default_services)
+
+    with lock.SpinLock(
+        cfg=cfg,
+        lock_holder="pro.api.u.pro.attach.auto.full_auto_attach.v1.auto_attach",
+    ):
+        actions.auto_attach(cfg, instance, enable_default_services)
 
     if enable_default_services:
         return FullAutoAttachResult()
 
     for name in found:
-        ent_ret, reason = actions.enable_entitlement_by_name(
-            cfg, name, assume_yes=True, allow_beta=True
-        )
+        with lock.SpinLock(
+            cfg=cfg,
+            lock_holder="pro.api.u.pro.attach.auto.full_auto_attach.v1.enable_entitlement_by_name",
+        ):
+            ent_ret, reason = actions.enable_entitlement_by_name(
+                cfg, name, assume_yes=True, allow_beta=True
+            )
         if not ent_ret:
             if (
                 reason is not None
