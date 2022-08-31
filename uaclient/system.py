@@ -34,7 +34,7 @@ RE_KERNEL_PROC_VERSION_SIGNATURE = (
     r"[.-]"
     r"(?P<subrev>[\d]+)"
     r"(~(?P<hwerev>[\d.]+))?"
-    r"-"
+    r"[-+]"
     r"(?P<flavor>[A-Za-z0-9_-]+)"
     r"$"
 )
@@ -91,7 +91,7 @@ def get_kernel_info() -> KernelInfo:
             )
             raise exceptions.UserFacingError(
                 msg=err_msg.msg,
-                msg_code=err_msg.code,
+                msg_code=err_msg.name,
             )
         version = match.group("version")
         abi = match.group("abi")
@@ -104,7 +104,7 @@ def get_kernel_info() -> KernelInfo:
             err_msg = messages.KERNEL_PARSE_ERROR.format(kernel=uname_release)
             raise exceptions.UserFacingError(
                 msg=err_msg.msg,
-                msg_code=err_msg.code,
+                msg_code=err_msg.name,
             )
         version = match.group("version")
         abi = match.group("abi")
@@ -117,7 +117,7 @@ def get_kernel_info() -> KernelInfo:
         err_msg = messages.KERNEL_VERSION_SPLIT_ERROR.format(version=version)
         raise exceptions.UserFacingError(
             msg=err_msg.msg,
-            msg_code=err_msg.code,
+            msg_code=err_msg.name,
         )
 
     major = int(version_split_match.group("major"))
