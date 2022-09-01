@@ -6,7 +6,7 @@
   Ubuntu Advantage Client
 </h1>
 
-###### Clean and Consistent CLI for your Ubuntu Advantage Systems
+###### Clean and Consistent CLI for your Ubuntu Systems
 ![Latest Upstream Version](https://img.shields.io/github/v/tag/canonical/ubuntu-advantage-client.svg?label=Latest%20Upstream%20Version&logo=github&logoColor=white&color=33ce57)
 ![CI](https://github.com/canonical/ubuntu-advantage-client/actions/workflows/ci-base.yaml/badge.svg?branch=main)
 <br/>
@@ -16,7 +16,8 @@
 ![Released Jammy Version](https://img.shields.io/ubuntu/v/ubuntu-advantage-tools/jammy?label=Jammy&logo=ubuntu&logoColor=white)
 
 The Ubuntu Advantage (UA) Client is the offical tool to enable Canonical offerings on your
-system.
+system and for systems management tools to extract system information in a consistent and 
+machine-readable way across Ubuntu releases.
 
 UA provides support to view, enable, and disable the following Canonical services:
 
@@ -27,7 +28,6 @@ UA provides support to view, enable, and disable the following Canonical service
 - [Robot Operating System (ROS) Expanded Security Maintenance](https://ubuntu.com/robotics/ros-esm)
 - [FIPS 140-2 Certified Modules (and optional non-certified patches)](https://ubuntu.com/security/fips)
 - [Livepatch Service](https://ubuntu.com/security/livepatch)
-
 
 If you need any of those services for your machine, UA is the right tool for you.
 Furthermore, UA is already installed on every Ubuntu system. Try it out by running `ua help`!
